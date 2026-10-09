@@ -1,0 +1,8 @@
+Shelley Bench
+Copyright 2026 Shelley Bench contributors
+
+This project is licensed under the Apache License, Version 2.0.
+
+Bundled third-party software retains its own license:
+Datastar 1.0.4 — Copyright © Star Federation.
+See app/static/vendor/DATASTAR-LICENSE.txt for its permission notice.

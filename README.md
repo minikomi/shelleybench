@@ -104,3 +104,9 @@ python3 -m app.import_results --manifest /path/to/manifest.json \
 
 Run the synthetic unit tests with `python3 -m unittest discover -s app/tests`.
 These tests do not require model inference.
+
+## License
+
+Shelley Bench is licensed under the Apache License, Version 2.0. See `LICENSE`
+and `NOTICE`. Bundled third-party software retains its own license; Datastar's
+notice is in `app/static/vendor/DATASTAR-LICENSE.txt`.
