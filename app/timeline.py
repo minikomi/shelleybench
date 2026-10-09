@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 import sqlite3
 from contextlib import closing
@@ -64,6 +65,24 @@ def kind_of(event):
 
 def clock(value):
     return f"{float(value):.0f}s" if _num(value) else "—"
+
+
+def axis_scale(span):
+    span = max(1.0, float(span))
+    steps = (1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 1800, 3600)
+    step = next((value for value in steps if span / value <= 8), 3600 * math.ceil(span / 28800))
+    end = math.ceil(span / step) * step
+    return end, range(0, end + 1, step)
+
+
+def axis_label(seconds):
+    if seconds < 60:
+        return f"{seconds}s"
+    minutes, remainder = divmod(seconds, 60)
+    if minutes < 60:
+        return f"{minutes}min" + (f" {remainder}s" if remainder else "")
+    hours, minutes = divmod(minutes, 60)
+    return f"{hours}h" + (f" {minutes}min" if minutes else "") + (f" {remainder}s" if remainder else "")
 
 
 def windows(run):
@@ -299,6 +318,8 @@ def render(runs, labels, base, query, *, heading="Timeline", span=None, group_la
     if not runs:
         return f'<section><h2>{e(heading)}</h2><p class="muted">No timeline events recorded.</p></section>'
     span = span or max([1.0, *[float(w["end"] or 0) for run in runs for w in windows(run)], *[float(run.get("wall_seconds") or 0) for run in runs]])
+    span, ticks = axis_scale(span)
+    axis = ''.join(f'<span style="left:{tick / span * 100:.3f}%">{e(axis_label(tick))}</span>' for tick in ticks)
     versions, present = [], set()
     current_group = None
     for run in runs:
@@ -378,13 +399,13 @@ def render(runs, labels, base, query, *, heading="Timeline", span=None, group_la
                     links.append(f'<button type="button" data-on:click="{e(action)}" title="Open rejected patch at {group["start"]:.1f}s">#{i} · {group["start"]:.1f}s</button>')
                 patch_summary = f'<div class="patch-outcome{" has-rejections" if counts["rejected"] else ""}"><strong>{counts["rejected"]} rejected patch calls</strong><span> / {counts["calls"]} attempts</span>{"".join(links)}</div>'
         verdict = 'pass' if run.get('passed') else 'fail' if run.get('passed') is False else run.get('status')
-        axis = ''.join(f'<span style="left:{p}%">{e(duration(span * p / 100))}</span>' for p in (0, 25, 50, 75, 100))
+
         history = f'<details class="activity-history"><summary>History <span>{len(groups)} activities · {e(name)}</span></summary><section class="activity-table"><div class="activity-table-head"><span></span><span>At</span><span>Activity</span><span>Action / reply</span><span>Duration</span></div><div class="activity-rows">{"".join(rows)}</div></section></details>'
         scroll = "const source=evt.currentTarget;const group=source.closest('.tl-pair')||source.closest('.tl');group.querySelectorAll('.tl-scroll').forEach(peer=>{if(peer!==source&&peer.scrollLeft!==source.scrollLeft){peer.scrollLeft=source.scrollLeft;}});"
         versions.append(f'<div class="version" data-version="{e(run.get("version"))}"><div class="version-head"><strong>{e(name)}</strong>{role_label}<span>{e(duration(run.get("wall_seconds")))} · {e(verdict)}</span></div><div class="timeline-grid"><div class="lane-labels">{"".join(lane_names)}</div><div class="tl-scroll" data-on:scroll="{e(scroll)}"><div class="tl-inner"><div class="axis">{axis}</div>{"".join(lanes)}</div></div></div>{patch_summary}{history}</div>')
     if current_group is not None:
         versions.append('</div>')
-    axis = ''.join(f'<span style="left:{p}%">{e(duration(span * p / 100))}</span>' for p in (0, 25, 50, 75, 100))
+
     legend = []
 
     for kind, label in ACTIVITY_TYPES.items():
@@ -414,6 +435,7 @@ def _total(ev):
 
 def charts(runs, labels, span):
     """Context size per model call and cumulative tokens/cost over time, one line per run, main agent only for context."""
+    span, _ = axis_scale(span)
     series = []
     for index, run in enumerate(runs):
         calls = sorted((ev for ev in run.get("events") or [] if isinstance(ev, dict) and ev.get("kind") == "model" and _num(ev.get("start")) and ev.get("usage")), key=lambda ev: float(ev["start"]))

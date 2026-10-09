@@ -193,6 +193,14 @@ def run_agent(binary: str, work: Path, output: Path, prompt: str, model: str, *,
     active_message: dict[str, Any] | None = None
     sequence = 0
 
+    def write_trace():
+        target = output / "trajectory.full.jsonl"
+        temporary = output / "trajectory.full.jsonl.tmp"
+        with temporary.open("w", encoding="utf-8") as stream:
+            for record in records:
+                stream.write(json.dumps(record, ensure_ascii=False) + "\n")
+        temporary.replace(target)
+
     def note(payload: dict[str, Any]) -> None:
         if emit:
             emit(payload)
@@ -318,6 +326,7 @@ def run_agent(binary: str, work: Path, output: Path, prompt: str, model: str, *,
                     raise RuntimeError("invalid Pi JSONL record: expected object")
                 handle(item, time.time())
                 if item.get("type") in {"message_start", "message_end", "tool_execution_start", "tool_execution_end"}:
+                    write_trace()
                     live_actors = [{"id": conversation_id or "pi", "parent_id": None, "slug": "main", "model": model_id,
                                     **{key: metrics[key] for key in _METRICS[:5]}}]
                     note({"kind": "progress", "status": "running", "wall_seconds": round(time.time() - started, 3),
@@ -343,9 +352,7 @@ def run_agent(binary: str, work: Path, output: Path, prompt: str, model: str, *,
         actors.append({"id": conversation_id, "parent_id": None, "slug": conversation_id, "model": model_id,
                        "started_at": started, **{key: metrics[key] for key in _METRICS[:5]}})
     events.sort(key=lambda item: (item.get("start", 0), item["id"]))
-    with (output / "trajectory.full.jsonl").open("w", encoding="utf-8") as stream:
-        for record in records:
-            stream.write(json.dumps(record, ensure_ascii=False) + "\n")
+    write_trace()
     runtime.export(output, home)
     sessions = home / ".pi" / "agent" / "sessions"
     if sessions.is_dir():

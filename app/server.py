@@ -504,7 +504,7 @@ class App:
                     raise RuntimeError("Cancelled")
                 label = f"{run['task_title']} · {run['model']} · {run['version']} · attempt {run['attempt']}"
                 store.update("benchmarks", key, progress=f"{index + 1}/{len(runs)}: {label}")
-                store.update("runs", run["id"], status="running", started_at=now())
+                store.update("runs", run["id"], status="running", started_at=now(), _dir=str(out / "runs" / run["id"]))
                 emit({"phase": "run", "progress": label})
                 last = [0.0]
                 def live(event, run_id=run["id"]):

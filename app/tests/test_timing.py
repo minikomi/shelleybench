@@ -104,6 +104,15 @@ class RequestTimingTests(unittest.TestCase):
         plot = html.split('class="tl-scroll"', 1)[1].split('class="activity-history"', 1)[0]
         self.assertNotIn('class="lane-label"', plot)
 
+    def test_timeline_ticks_use_round_intervals_and_readable_units(self):
+        span, ticks = timeline.axis_scale(341.683)
+        self.assertEqual(span, 360)
+        self.assertEqual([timeline.axis_label(tick) for tick in ticks],
+                         ["0s", "1min", "2min", "3min", "4min", "5min", "6min"])
+        span, ticks = timeline.axis_scale(150)
+        self.assertEqual([timeline.axis_label(tick) for tick in ticks],
+                         ["0s", "30s", "1min", "1min 30s", "2min", "2min 30s"])
+
     def test_native_and_imported_records_preserve_glm_thinking_and_tool_output(self):
         rows = [
             {"record_type": "message", "conversation_id": "actor", "sequence_id": 4, "type": "agent",

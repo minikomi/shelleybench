@@ -102,6 +102,25 @@ class PiAdapterTests(unittest.TestCase):
         self.assertEqual(result["status"], "error")
         self.assertIn("provider rejected request", result["error"])
 
+    def test_completed_reasoning_is_exported_before_progress_notification(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);work=root/"work";output=root/"output";work.mkdir()
+            lines=[
+                {"type":"session","id":"s"},
+                {"type":"message_start","message":{"role":"assistant","content":[]}},
+                {"type":"message_end","message":{"role":"assistant","content":[{"type":"thinking","thinking":"Recorded plan"}]}},
+                {"type":"agent_settled","aborted":False},
+            ]
+            observed=[]
+            def emit(event):
+                if event.get("kind")=="progress":
+                    observed.append((output/"trajectory.full.jsonl").read_text())
+            with mock.patch("app.pi.native.sandbox_command",side_effect=lambda _w,_h,command:command),mock.patch("app.pi.subprocess.Popen",return_value=FakeProcess(lines)),mock.patch("app.pi.native._terminate"):
+                result=pi.run_agent("pi",work,output,"task","model",emit=emit)
+            self.assertEqual(result["status"],"completed")
+            self.assertTrue(any("Recorded plan" in trace for trace in observed))
+            self.assertFalse((output/"trajectory.full.jsonl.tmp").exists())
+
     def test_process_exit_without_settlement_is_an_error(self):
         result, _files, _sandbox = self.run_pi([{"type": "session", "id": "s"}])
         self.assertEqual(result["status"], "error")
