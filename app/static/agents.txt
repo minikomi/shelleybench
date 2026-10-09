@@ -1,71 +1,283 @@
-# Shelley Bench: API guide
+# Shelley Bench: agent operating guide
 
-Use the JSON API to inspect and operate Shelley Bench. Read this guide before
-automation. Browser automation is unnecessary for API requests.
+Use the JSON API to inspect and operate the platform. Read this guide before
+writing requests; browser automation is unnecessary for API work.
+This service is for trusted local or otherwise protected access. It has no
+application-level authentication or authorization. Reachability, including
+proxy Web access, is not permission to spend money, change settings, or delete
+records. Artifacts and configuration can contain sensitive material.
 
-The service is intended for trusted local or otherwise protected access. It
-does not provide UI authentication or authorization. Do not treat a reachable
-endpoint as permission to submit work, read artifacts, change settings, or
-delete records.
+## Authorization and cost
 
-## Cost and safety
+GET requests are read-only. Task preparation, benchmark execution, generated
+findings, and follow-up discussion can invoke paid inference. Confirm the
+requested tasks, agent versions, models, reasoning, and attempt count first.
+A proposed experiment or a request to edit prose is not permission to run it.
+Do not silently expand a run into a matrix, retry failed preparation, change
+shared settings, or restart an active service. Diagnose a concrete failure
+before seeking authorization for another paid attempt.
+Never automatically repeat an ambiguous POST: read saved state first.
 
-GET requests are read-only. Creating or preparing tasks, running benchmarks,
-generating findings, and asking follow-up questions can invoke paid inference.
-Confirm the task, versions, models, reasoning level, and attempt count before
-sending a write request. Use the model identifiers reported by `GET /api/state`;
-do not infer availability from a product name.
+## Connection and published studies
 
-Do not automatically repeat an ambiguous POST. First read the saved state to
-avoid duplicate work and charges. Do not restart the service or delete records
-while benchmark work is active.
+Use the configured HTTP origin consistently. On the service VM this is its
+local listen address; give people the externally reachable proxy URL, not
+localhost. A deployment-specific connection section may precede this guide.
 
-## Read state
+The homepage can be curated. If featured studies exist, only those appear in
+featured_order; /?view=all opens the archive. Original studies and direct
+links remain available. GET /api/state and /api/benchmarks still list all
+records, not just the published homepage. Do not delete evidence to curate it.
 
-```
-GET /healthz
-GET /api/state
-GET /api/tasks
-GET /api/tasks/<id>
-GET /api/benchmarks
-GET /api/benchmarks/<id>
-GET /api/runs/<id>
-GET /api/jobs/<id>
-```
+## First reads: JSON API
 
-Use `GET /api/state` to inspect available settings and current activity before
-selecting work. A completed benchmark can include failed or interrupted runs;
-inspect individual run records and job errors.
+GET /healthz                     Service health.
+GET /api/state                   Settings, installed models, tasks, benchmarks.
+GET /api/tasks                   Task library.
+GET /api/tasks/<id>              Task, scoring contract, controls, status.
+GET /api/benchmarks              Benchmarks and per-version summaries.
+GET /api/benchmarks/<id>         Configuration, report, findings, brief runs.
+GET /api/runs/<id>               Full events, actors, metrics, artifact names.
+GET /api/jobs/<id>               Worker status, progress log, errors.
+GET /api/benchmarks/<id>/chat    Saved follow-up discussion.
 
-## Common write operations
+Benchmark run lists omit full events. Use the individual run endpoint for
+trace analysis. A complete benchmark can contain failed or unfinished runs;
+inspect each outcome, passed flag, error, and associated job.
+Use model IDs from state for Shelley. For Pi, independently verify the
+operator-configured provider/model mapping; a Shelley catalog entry does not
+prove that model is configured in Pi.
 
-```
+## Tasks and grader qualification
+
+A task's base_commit is the code the actor starts from. reference_commit is
+the known implementation used to qualify the hidden grader. Agent versions
+are separate: they select the executable doing the coding.
+Prefer existing ready tasks of appropriate scope. Read their prompt, frozen
+inputs, scoring contract, and qualification controls before choosing one.
+
 POST /api/tasks
-POST /api/tasks/<id>/prepare
-POST /api/benchmarks
+{
+  "title": "A focused historical backend change",
+  "reference_commit": "<REFERENCE_SHA>",
+  "base_commit": "<BASE_SHA>",
+  "blurb": "Observable behavior to implement and why it fits.",
+  "tags": ["backend"],
+  "prepare": false
+}
+
+base_commit defaults to the reference's parent. prepare defaults to true:
+omitting it starts paid preparation immediately. With prepare:false, start
+preparation explicitly using POST /api/tasks/<id>/prepare {}.
+A manual specification may include prompt, setup_command, acceptance_command,
+test_patch, grading_contract, and grading_probe at task creation.
+
+Preparation writes/reviews behavioral tests and verifies the SAME grader:
+- Base fails a marked behavioral assertion, not a setup or compiler error.
+- Reference passes.
+- An equivalent implementation passes, challenging implementation assumptions.
+Tests must be model-free and must not use real providers or existing services.
+Reference-only private helpers, source-shape checks, or weakened requirements
+are not substitutes for observable behavior. Hidden tests are additive,
+benchmark-prefixed files; they must not edit production code or old fixtures.
+Configure test mocks explicitly and include necessary asset/build setup.
+Require ready status and current qualification before benchmark execution.
+
+Failed qualification is not a failed actor attempt. The prepare endpoint has
+an automatic revision loop (up to three rounds); the writer can also request
+up to five historical-source inspection rounds. Preparation is not one model
+call. Do not repeatedly invoke it after failures without reading the error and
+progress log. If a single-pass review/control workflow
+is needed, ask the operator rather than inventing an API option.
+POST /api/tasks/<id> edits supported task metadata/inputs; material edits
+invalidate prior qualification. Contract/probe fields are not accepted by
+that update endpoint. Do not overwrite frozen benchmark inputs or past runs.
+
+## Create a benchmark
+
+POST /api/benchmarks starts execution immediately; there is no preview flag.
+{
+  "title": "Shelley versus Pi",
+  "group": "Agent comparison",
+  "task_ids": ["<READY_TASK_ID>"],
+  "versions": [
+    {"label": "Shelley", "ref": "<SHELLEY_SHA>"},
+    {"label": "Pi", "agent": "pi", "options": {
+      "provider": "<PI_PROVIDER>", "model_id": "<PI_MODEL_ID>"
+    }}
+  ],
+  "models": ["<ROOT_MODEL_ID>"],
+  "attempts": 1,
+  "reasoning": "medium",
+  "agent_note": "<IDENTICAL_OPTIONAL_ACTOR_INSTRUCTION>"
+}
+
+This queues two coding attempts: one task x two versions x one model x one
+attempt. More tasks/models/versions/attempts multiply the scope.
+Allowed reasoning: off, minimal, low, medium, high, xhigh, max.
+agent_note is appended identically to each task prompt. Do not add stronger
+delegation instructions unless that is the intended treatment.
+Tasks are frozen at benchmark creation. Runs execute sequentially.
+Save the returned benchmark/run IDs. Inspect the queued combinations before
+reporting what was started. The returned model name is not proof of identical
+tool sets, helper models, or system instructions across adapters.
+
+## Agent executables, profiles, and Pi
+
+Shelley is the default adapter. ref is resolved from the configured local
+checkout; the app does not fetch automatically. Resolve branches, HEAD and
+dirty status before selecting a revision. WORKTREE includes uncommitted code.
+Commit builds are cached; record exact SHAs for repeatable comparisons.
+
+Pi uses the installed executable, not a Shelley build. Configure pi_binary
+through POST /api/settings or provide binary on the Pi version. Its recorded
+sha is an executable SHA-256, not a Git revision. The hash is rechecked before
+execution; replacing the binary after creation causes a preparation error.
+Pi options: provider, model_id, extensions (explicit entry paths), config_dir.
+config_dir supplies selected auth.json, models.json, and settings.json files.
+Keep credentials/configuration private; do not put them in reports or commits.
+Pi JSON print mode runs in a fresh sandbox home, with ambient extensions,
+skills and prompt templates disabled; only selected extensions are loaded.
+Default Pi tools are not Shelley's tools. A provider bridge does not by itself
+supply Shelley's subagent facilities. Retain and inspect the actual usage.
+
+Preflight executable/version and provider/model availability without sending
+a prompt where possible. Verify inside the same isolated environment: host
+symlinks, configuration, or extensions may not work there.
+Isolation is filesystem isolation, not hostile-code security; network access
+remains available. Do not claim private project data is safe from untrusted
+agent code or extensions.
+
+Runtime profiles are opt-in and operator-specific. The public package supports
+runtime_profile:"configured" only when an operator profile directory is set.
+Do not assume other deployments accept that name, or enable a personal profile
+implicitly. Hold profiles constant in an agent comparison. A profile change
+can change tools AND instructions, not just tool availability.
+
+## Reuse completed evidence; do not rerun unnecessarily
+
+A version may use {"label":"Baseline","reuse_run_id":"<COMPLETED_RUN_ID>"}
+instead of ref. Pair it with the explicitly authorized fresh version.
+Reuse clones completed graded evidence; the original run remains unchanged.
+It requires one task, one model, one comparison attempt, identical frozen
+source/prompt/setup/acceptance/test patch/contract/qualification, and matching
+reasoning and agent_note. A failed graded run is still a recorded outcome;
+reuse is not limited to passes. Reused versions do not launch coding agents.
+
+Do not submit an all-reused benchmark to create a display page: the current
+creation path requires new work to queue. There is no public bulk-merge or
+consolidation endpoint. For a read-only page combining existing studies, use
+an explicitly authorized operator-side consolidation workflow, preserve
+source links/trace artifacts, and launch no new models. Do not fabricate
+measurements or edit original outcomes to make a cleaner comparison.
+
+## Add a precisely scoped attempt
+
 POST /api/benchmarks/<id>/runs
-POST /api/benchmarks/<id>/cancel
-POST /api/benchmarks/<id>/resume
-POST /api/benchmarks/<id>/findings
-POST /api/benchmarks/<id>/chat
-POST /api/settings
-DELETE /api/tasks/<id>
-DELETE /api/benchmarks/<id>
-```
+{
+  "task_ids": ["<TASK_ID>"],
+  "models": ["<MODEL_ID>"],
+  "version_labels": ["<EXISTING_VERSION_LABEL>"],
+  "attempts": 1
+}
 
-Task and benchmark creation can start work immediately. Read the returned
-record, then follow its status through the corresponding GET endpoint. A
-resume can affect every unfinished run in a benchmark; cancel and delete are
-also broad operations. Restrict changes to the intended task or benchmark.
+attempts is the TARGET count per combination, not an additional count.
+attempts:2 considers slots 1 and 2; existing combinations are skipped.
+Omitting attempts uses the existing count. Omitting version_labels selects
+all versions; omitting tasks/models broadens those selections too. Be explicit.
+To add a new version, supply versions:[{"label":"new","ref":"<SHA>"}].
+Additional runs are rejected while the benchmark is active. Reused versions
+cannot queue new coding attempts.
 
-`POST /api/benchmarks/<id>/chat` is analysis-only, but it can still use paid
-inference. Supply a unique `request_id` for a question when supported by the
-client so retries can be recognized.
+POST /api/benchmarks/<id>/cancel {} stops the active job.
+POST /api/benchmarks/<id>/resume {} requeues ALL eligible unfinished runs,
+including queued, interrupted, cancelled, infrastructure-failed and timed-out
+runs. It resets saved run fields; it is not a selected, evidence-preserving
+retry. retry:true on /runs also retries eligible failures across the benchmark,
+not just the selected tasks/models/versions. Confirm the full scope first.
+To retain a failed setup record, prefer a new comparison reusing completed
+baselines and containing only the approved fresh work. A setup failure is not
+an agent grading failure; inspect artifacts before asserting no inference ran.
 
-## Interpreting results
+## Progress, reports, and curation
 
-Compare like-for-like task, version, model, and attempt combinations. Treat
-small samples as descriptive rather than causal. Separate recorded outcomes
-from recommendations, and retain failures and missing data in summaries.
-Artifacts and run records can contain sensitive project material; share them
-only through an access-controlled channel.
+Active benchmark statuses: queued, building, running. Execution can be complete
+while progress still says Writing findings; those paid findings are separate.
+Use delayed wakeups, not busy polling. Do not restart while runs, preparation,
+findings, or discussions are active. A timeout needs diagnosis, not an automatic
+increase in time limits or another attempt.
+
+POST /api/benchmarks/<id> updates title, group, notes, tags, report, and
+featured_order without launching inference. report accepts hypothesis,
+abstract, setup, conclusions, followups; supplied fields merge with old prose.
+Each report field is text, up to 12,000 characters.
+featured_order is null (not selected) or an integer 0-1000 (selected/order).
+It is a metadata-update field, not a benchmark-creation option. Feature only
+canonical published studies; leave diagnostics and intermediate pages in the
+archive. Do not feature every component of a consolidated study.
+
+Write a decision aid, with a 30-60 second read before the charts:
+- Results (abstract): real counts, measured outcomes, useful comparisons.
+- What we know (setup): matched controls and meaningful differences.
+- What we've decided (conclusions): approved actions, distinct from proposals.
+- Still unknown (followups): gaps and the next useful choice/experiment.
+hypothesis is the short study question. Use plain language and nested bullets.
+Consolidate related tasks on one page with a clear summary and all timelines
+inline, grouped by task/model/slot. Keep raw sources and bookkeeping collapsed.
+Do not let a setup blip dominate the main result or treat it as an agent loss.
+
+Markdown supports headings, nested lists, bold/code, tables, and safe relative
+or HTTP links. Table alignment is column-wide, including headers; numeric
+columns are inferred unless the separator specifies :---, ---:, or :---:.
+Tables fit their content; wide tables scroll locally. Do not pad cells to align
+numbers or inject HTML to style them.
+
+## Reading evidence correctly
+
+/benchmarks/<id> is the results page; /runs/<id> is a full recorded run.
+Artifacts: /artifacts/<run-id>/<artifact-name>. Histories start collapsed;
+click a timeline block to reveal its recorded reasoning/tool results.
+Compare within task x parent model x comparison slot, with configurations on
+one shared time scale. A representative completed retry can replace an
+interrupted slot in presentation; actual execution numbers remain recorded.
+No chart color, gap, or missing event proves idle time or hidden thinking.
+Only show reasoning actually recorded, never invent absent Thinking content.
+
+Separate parent and helper calls/tokens and disclose helper model differences.
+Total token volume sums input, output, cache-read and cache-write categories
+across calls; it counts repeated context, not unique text or dollar cost.
+Missing/zero provider cost may mean unavailable pricing, not free work.
+For Pi, audit FINAL assistant message usage in pi.events.raw.jsonl and the
+saved Pi session against normalized totals; do not sum streaming deltas or
+count creation timestamps as completion timestamps.
+Pi model intervals are observed response lifecycle/JSONL receipt timing,
+NOT provider HTTP request timing. Shelley records its own API timing where
+available; missing durations stay unknown/points. Do not compare timing sources
+as if their instrumentation were identical or infer provider latency from gaps.
+
+Small samples are descriptive. Verify generated findings against trace evidence;
+do not rank agents causally when tools, helper strategy or validation differ.
+
+## Other writes and retention
+
+POST /api/benchmarks/<id>/findings {} starts paid findings generation.
+POST /api/benchmarks/<id>/chat with message and a unique request_id starts paid,
+analysis-only discussion; it does not run benchmarks. Reusing the SAME ID and
+text returns the original turn. Other write endpoints are not idempotent.
+POST /api/settings changes shared executable/repository/model/build/timeout
+settings. Accepted fields: shelley_binary, pi_binary, shelley_repo,
+build_command, binary_path, assistant_model, reasoning, timeout_seconds.
+Confirm authorization; do not retarget an active experiment.
+POST /api/runs records authorized external evidence in an existing benchmark;
+version must match its configured labels. It is not an artifact-upload or
+full-study cloning endpoint. Do not imply externally recorded metrics have
+local qualification/trace artifacts unless those actually exist.
+DELETE /api/benchmarks/<id> and DELETE /api/tasks/<id> require explicit approval.
+They remove saved records, not merely homepage visibility. POST <same-path>/delete
+is also supported. Preserve evidence rather than deleting an inconvenient result.
+
+Finished-job checkouts and disposable dependency/build homes are cleaned up.
+Metrics, events, trajectories, sessions, candidate patches, grader logs and
+other retained artifacts remain; cached executables are reused. Do not depend
+on an old checkout/home remaining on disk. Keep real results, private paths,
+credentials, personal profiles and copied traces out of a source-only release.

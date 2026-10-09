@@ -20,7 +20,10 @@ class AgentDocsTests(unittest.TestCase):
         with urllib.request.urlopen(base + '/static/agents.txt') as response:
             self.assertEqual(guide, response.read().decode())
         for expected in ('/api/benchmarks', 'paid inference', 'trusted local',
-                         'JSON API', 'GET /api/state'):
+                         'JSON API', 'GET /api/state', '"agent": "pi"',
+                         'reuse_run_id', 'featured_order', '/?view=all',
+                         'version_labels', 'TARGET count', 'JSONL receipt timing',
+                         'no public bulk-merge', 'automatic revision loop'):
             self.assertIn(expected, guide)
         self.assertNotIn('Historical Imports', guide)
         self.assertNotIn('importing evidence', guide)
