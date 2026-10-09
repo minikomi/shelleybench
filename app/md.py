@@ -7,17 +7,37 @@ def _inline(text):
     text = html.escape(text, quote=False)
     text = re.sub(r"`([^`]+)`", r"<code>\1</code>", text)
     text = re.sub(r"\*\*([^*]+)\*\*", r"<strong>\1</strong>", text)
+    def link(match):
+        href = html.unescape(match.group(2))
+        if not (href.startswith(("https://", "http://")) or href.startswith("/") and not href.startswith("//")):
+            return match.group(0)
+        return f'<a href="{html.escape(href, quote=True)}">{match.group(1)}</a>'
+    text = re.sub(r"\[([^\]]+)\]\(([^)\s]+)\)", link, text)
     return text
 
 
 def _table(lines):
     rows = [[c.strip() for c in line.strip().strip("|").split("|")] for line in lines]
-    rows = [r for r in rows if not all(re.fullmatch(r":?-{2,}:?", c or "") for c in r)]
     if not rows:
         return ""
-    head = "".join(f"<th>{_inline(c)}</th>" for c in rows[0])
-    body = "".join("<tr>" + "".join(f'<td class="{"num" if re.fullmatch(r"[−+\-−]?[\d.,]+%?[a-z]*|n/a|—", c or "") else ""}">{_inline(c)}</td>' for c in r) + "</tr>" for r in rows[1:])
-    return f"<table><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table>"
+    separator = rows[1] if len(rows) > 1 and all(re.fullmatch(r":?-{2,}:?", c or "") for c in rows[1]) else []
+    body_rows = rows[2:] if separator else rows[1:]
+    classes = []
+    for column in range(len(rows[0])):
+        marker = separator[column] if column < len(separator) else ""
+        numeric = column > 0 and any(re.fullmatch(r"[+\-−]?\d[\d.,]*[a-z%]*(?:\s*\([^)]*\))?(?:\s*/\s*[+\-−]?\d[\d.,]*[a-z%]*)?",
+                                                 row[column].replace("**", "").replace("`", ""), re.I)
+                                    for row in body_rows if column < len(row))
+        if marker.startswith(":"):
+            classes.append("md-center" if marker.endswith(":") else "")
+        else:
+            classes.append("num" if marker.endswith(":") or numeric else "")
+    def cell(tag, text, column):
+        return f'<{tag} class="{classes[column]}">{_inline(text)}</{tag}>'
+    head = "".join(cell("th", text, column) for column, text in enumerate(rows[0]))
+    body = "".join("<tr>" + "".join(cell("td", row[column] if column < len(row) else "", column)
+                                   for column in range(len(rows[0]))) + "</tr>" for row in body_rows)
+    return f'<div class="table-scroll md-table-scroll"><table class="md-table"><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table></div>'
 
 
 def render(text):
