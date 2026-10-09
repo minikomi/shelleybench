@@ -1,0 +1,4 @@
+# Shelley Bench
+# Agent operating guide: /agents.txt
+# Read /agents.txt before using the JSON API.
+# No crawler restrictions are declared here.

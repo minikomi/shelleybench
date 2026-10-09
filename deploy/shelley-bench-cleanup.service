@@ -1,0 +1,12 @@
+[Unit]
+Description=Remove disposable files from finished Shelley Bench jobs
+
+[Service]
+Type=oneshot
+# Match User, Group, WorkingDirectory, and data directory to shelley-bench.service.
+User=shelleybench
+Group=shelleybench
+WorkingDirectory=/opt/shelleybench
+ExecStart=/usr/bin/python3 -m app.cleanup --data /var/lib/shelley-bench
+Nice=19
+IOSchedulingClass=idle

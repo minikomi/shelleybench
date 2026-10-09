@@ -1,0 +1,71 @@
+# Shelley Bench: API guide
+
+Use the JSON API to inspect and operate Shelley Bench. Read this guide before
+automation. Browser automation is unnecessary for API requests.
+
+The service is intended for trusted local or otherwise protected access. It
+does not provide UI authentication or authorization. Do not treat a reachable
+endpoint as permission to submit work, read artifacts, change settings, or
+delete records.
+
+## Cost and safety
+
+GET requests are read-only. Creating or preparing tasks, running benchmarks,
+generating findings, and asking follow-up questions can invoke paid inference.
+Confirm the task, versions, models, reasoning level, and attempt count before
+sending a write request. Use the model identifiers reported by `GET /api/state`;
+do not infer availability from a product name.
+
+Do not automatically repeat an ambiguous POST. First read the saved state to
+avoid duplicate work and charges. Do not restart the service or delete records
+while benchmark work is active.
+
+## Read state
+
+```
+GET /healthz
+GET /api/state
+GET /api/tasks
+GET /api/tasks/<id>
+GET /api/benchmarks
+GET /api/benchmarks/<id>
+GET /api/runs/<id>
+GET /api/jobs/<id>
+```
+
+Use `GET /api/state` to inspect available settings and current activity before
+selecting work. A completed benchmark can include failed or interrupted runs;
+inspect individual run records and job errors.
+
+## Common write operations
+
+```
+POST /api/tasks
+POST /api/tasks/<id>/prepare
+POST /api/benchmarks
+POST /api/benchmarks/<id>/runs
+POST /api/benchmarks/<id>/cancel
+POST /api/benchmarks/<id>/resume
+POST /api/benchmarks/<id>/findings
+POST /api/benchmarks/<id>/chat
+POST /api/settings
+DELETE /api/tasks/<id>
+DELETE /api/benchmarks/<id>
+```
+
+Task and benchmark creation can start work immediately. Read the returned
+record, then follow its status through the corresponding GET endpoint. A
+resume can affect every unfinished run in a benchmark; cancel and delete are
+also broad operations. Restrict changes to the intended task or benchmark.
+
+`POST /api/benchmarks/<id>/chat` is analysis-only, but it can still use paid
+inference. Supply a unique `request_id` for a question when supported by the
+client so retries can be recognized.
+
+## Interpreting results
+
+Compare like-for-like task, version, model, and attempt combinations. Treat
+small samples as descriptive rather than causal. Separate recorded outcomes
+from recommendations, and retain failures and missing data in summaries.
+Artifacts and run records can contain sensitive project material; share them
+only through an access-controlled channel.

@@ -1,0 +1,20 @@
+[Unit]
+Description=Shelley Bench
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Edit these paths and account before installation.
+User=shelleybench
+Group=shelleybench
+WorkingDirectory=/opt/shelleybench
+ExecStart=/usr/bin/python3 -m app.server --port 8138 --data /var/lib/shelley-bench
+# Optional protected runtime configuration; create this file only if needed.
+EnvironmentFile=-/etc/shelley-bench/environment
+Restart=on-failure
+RestartSec=3
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target

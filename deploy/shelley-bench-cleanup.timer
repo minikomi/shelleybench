@@ -1,0 +1,10 @@
+[Unit]
+Description=Periodic Shelley Bench workspace cleanup
+
+[Timer]
+OnActiveSec=10min
+OnUnitActiveSec=10min
+Unit=shelley-bench-cleanup.service
+
+[Install]
+WantedBy=timers.target
