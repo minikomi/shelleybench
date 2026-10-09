@@ -21,6 +21,7 @@ def identifier(prefix):
 
 DEFAULTS = {
     "shelley_binary": os.environ.get("SHELLEY_BENCH_SHELLEY_BINARY") or shutil.which("shelley") or "shelley",
+    "pi_binary": os.environ.get("SHELLEY_BENCH_PI_BINARY") or shutil.which("pi") or "pi",
     "shelley_repo": os.environ.get("SHELLEY_BENCH_SHELLEY_REPO", ""),
     "baseline_ref": os.environ.get("SHELLEY_BENCH_BASELINE_REF", "main"),
     "build_command": "make build",

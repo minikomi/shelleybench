@@ -110,3 +110,25 @@ These tests do not require model inference.
 Shelley Bench is licensed under the Apache License, Version 2.0. See `LICENSE`
 and `NOTICE`. Bundled third-party software retains its own license; Datastar's
 notice is in `app/static/vendor/DATASTAR-LICENSE.txt`.
+
+## Pi adapter
+
+Pi variants run the installed Pi executable rather than building Shelley. Set
+`SHELLEY_BENCH_PI_BINARY` (or `pi_binary` in Settings), then create a version:
+
+```json
+{"label":"Pi","agent":"pi","options":{"provider":"your-provider","model_id":"your-model"}}
+```
+
+The adapter uses Pi JSON print mode in an isolated fresh home. Optional `extensions`
+contains explicit absolute extension entry paths; `config_dir` copies only
+operator-selected `auth.json`, `models.json`, and `settings.json`. Ambient extensions,
+skills, and prompt templates are not loaded. Credentials stay inside the disposable
+home, not exported artifacts. Raw events and the new session are retained as private
+run evidence. Pi lifecycle/JSONL-receipt durations are labeled separately from
+Shelley's API-request timing; missing cost is not presented as zero-priced work.
+
+A version can instead specify `reuse_run_id` to reuse a completed graded outcome.
+Reuse requires identical frozen task/grader, model, reasoning, and actor note;
+original runs are unchanged, and reused versions do not launch an agent. This is
+limited to one comparison attempt.

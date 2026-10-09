@@ -14,7 +14,7 @@ import threading
 import time
 from typing import Any, Callable
 
-from . import gitops, grading, native
+from . import agents, gitops, grading, native
 
 Emit = Callable[[dict[str, Any]], None]
 _SUCCESS = {"complete", "completed", "passed", "success"}
@@ -287,8 +287,8 @@ def run_trial(task: dict[str, Any], repo: dict[str, Any], variant: dict[str, Any
             result.update(status=_run_status(setup), error=f"setup {setup['status']}")
             return result
         _emit(emit, kind="model", label="run actor", start=time.time())
-        agent = native.run_agent(_actor_binary(variant, work), work, _mkdir(out / "agent"), task["prompt"], model,
-                                 reasoning=reasoning, timeout=timeout, cancel=cancel, emit=emit, runtime_profile=variant.get("runtime_profile"))
+        agent = agents.run_agent(_actor_binary(variant, work), work, _mkdir(out / "agent"), task["prompt"], model,
+                                 variant=variant, reasoning=reasoning, timeout=timeout, cancel=cancel, emit=emit, runtime_profile=variant.get("runtime_profile"))
         result.update(_agent_metrics(agent), auxiliary=agent.get("auxiliary"), actors=agent.get("actors", []),
                       events=agent.get("events", []), conversation_id=agent.get("conversation_id"),
                       wall_seconds=agent.get("wall_seconds", time.monotonic() - started))

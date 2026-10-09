@@ -14,7 +14,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from . import assistant, cleanup, gitops, grading, native, runner, runtime, ui, versions
+from . import agents, assistant, cleanup, gitops, grading, native, runner, runtime, ui, versions
 from .store import Store, identifier, now
 
 REASONING = {"off", "minimal", "low", "medium", "high", "xhigh", "max"}
@@ -156,7 +156,7 @@ class App:
 
     # ----- settings --------------------------------------------------------
     def settings(self, body):
-        allowed = {"shelley_binary", "shelley_repo", "build_command", "binary_path", "assistant_model", "reasoning", "timeout_seconds"}
+        allowed = {"shelley_binary", "pi_binary", "shelley_repo", "build_command", "binary_path", "assistant_model", "reasoning", "timeout_seconds"}
         if set(body) - allowed:
             raise ValueError("Unknown settings field")
         values = {**self.store.settings(), **body}
@@ -300,6 +300,26 @@ class App:
         for item in raw_versions:
             if not isinstance(item, dict):
                 raise ValueError("Each version must be an object")
+            if item.get("reuse_run_id"):
+                source = self.store.require("runs", item["reuse_run_id"])
+                source_bench = self.store.require("benchmarks", source["benchmark_id"])
+                original = next(v for v in source_bench["versions"] if v["label"] == source["version"])
+                label = text(item.get("label") or source["version"], 60, "label").strip()
+                if label in seen:
+                    raise ValueError(f"Duplicate version label {label!r}")
+                seen.add(label)
+                resolved.append({**copy.deepcopy(original), "label": label, "reuse_run_id": source["id"]})
+                continue
+            if item.get("agent") == "pi":
+                version = agents.pi_version(item, s.get("pi_binary") or "pi")
+                label = text(item.get("label") or version["ref"], 60, "label").strip()
+                if label in seen:
+                    raise ValueError(f"Duplicate version label {label!r}")
+                seen.add(label)
+                resolved.append({**version, "label": label})
+                continue
+            if item.get("agent", "shelley") != "shelley":
+                raise ValueError("Unknown coding-agent adapter")
             ref = text(item.get("ref"), 200, "ref").strip() or "WORKTREE"
             sha = revision(s["shelley_repo"], ref)
             label = text(item.get("label"), 60, "label").strip() or (ref if ref == "WORKTREE" else sha[:10])
@@ -310,12 +330,12 @@ class App:
             resolved.append({"label": label, "ref": ref, "sha": sha, "describe": versions.describe(s["shelley_repo"], ref), "runtime_profile": profile})
         return resolved
 
-    def resolve_models(self, models):
+    def resolve_models(self, models, *, external=False):
         if not isinstance(models, list) or not models:
             raise ValueError("models must be a non-empty list")
         known = {m["id"] for m in self.models}
         unknown = [m for m in models if m not in known]
-        if unknown and known:
+        if unknown and known and not external:
             raise ValueError("Unknown models: " + ", ".join(map(str, unknown)))
         return models
 
@@ -333,6 +353,8 @@ class App:
                     for version in versions:
                         if (task["id"], model, attempt, version["label"]) in existing:
                             continue
+                        if version.get("reuse_run_id"):
+                            raise ValueError("A reused version cannot queue new coding runs")
                         existing[(task["id"], model, attempt, version["label"])] = None
                         run = self.store.put("runs", {"id": identifier("run"), "benchmark_id": bench["id"], "task_id": task["id"], "task_title": task["title"],
                                                       "version": version["label"], "model": model, "attempt": attempt, "status": "queued", "passed": None})
@@ -373,7 +395,7 @@ class App:
             if not isinstance(selected, list) or set(selected) - {v["label"] for v in versions}:
                 raise ValueError("version_labels must name existing benchmark versions")
             versions = [v for v in versions if v["label"] in selected]
-        models = self.resolve_models(body["models"]) if body.get("models") else bench["models"]
+        models = self.resolve_models(body["models"], external=all(v.get("agent") == "pi" or v.get("reuse_run_id") for v in versions)) if body.get("models") else bench["models"]
         attempts = int(body.get("attempts") or bench["attempts"])
         if not 1 <= attempts <= 20:
             raise ValueError("attempts must be 1-20")
@@ -391,7 +413,7 @@ class App:
         s = self.store.settings()
         tasks = self.resolve_tasks(body.get("task_ids") or [])
         resolved = self.resolve_versions(body.get("versions") or [])
-        models = self.resolve_models(body.get("models") or [])
+        models = self.resolve_models(body.get("models") or [], external=all(v.get("agent") == "pi" or v.get("reuse_run_id") for v in resolved))
         attempts = int(body.get("attempts") or 1)
         if not 1 <= attempts <= 10:
             raise ValueError("attempts must be 1-10")
@@ -406,12 +428,40 @@ class App:
                  "task_ids": [t["id"] for t in tasks], "frozen_tasks": [copy.deepcopy(t) for t in tasks],
                  "versions": resolved, "models": models, "attempts": attempts, "reasoning": reasoning,
                  "status": "queued", "error": None, "progress": "Waiting for the runner"}
+        reused = self.reused_runs(bench)
         self.store.put("benchmarks", bench)
+        for run in reused:
+            self.store.put("runs", run)
         self.queue_runs(bench, tasks, models, range(1, attempts + 1), resolved)
         return self.benchmark_view(self.store.require("benchmarks", bench["id"]), runs=True)
 
+    def reused_runs(self, bench):
+        reused = []
+        for version in bench["versions"]:
+            if not version.get("reuse_run_id"):
+                continue
+            source = self.store.require("runs", version["reuse_run_id"])
+            source_bench = self.store.require("benchmarks", source["benchmark_id"])
+            if source.get("status") != "complete" or not isinstance(source.get("passed"), bool):
+                raise ValueError("Only completed graded runs can be reused")
+            if bench["models"] != [source["model"]] or bench["task_ids"] != [source["task_id"]] or bench["attempts"] != 1:
+                raise ValueError("Reused run must match the task/model and a single comparison attempt")
+            if source_bench.get("reasoning") != bench["reasoning"] or source_bench.get("agent_note", "") != bench.get("agent_note", ""):
+                raise ValueError("Reused run reasoning and actor note must match")
+            old_task = next(t for t in source_bench["frozen_tasks"] if t["id"] == source["task_id"])
+            new_task = next(t for t in bench["frozen_tasks"] if t["id"] == source["task_id"])
+            fields = ("base_commit", "prompt", "setup_command", "acceptance_command", "test_patch", "grading_contract", "grading_qualification")
+            if any(old_task.get(key) != new_task.get(key) for key in fields):
+                raise ValueError("Reused run must match the frozen task and grader")
+            reused.append({**copy.deepcopy(source), "id": identifier("run"), "benchmark_id": bench["id"],
+                           "version": version["label"], "attempt": 1, "_source_run_id": source["id"],
+                           "recorded_attempt": source.get("attempt")})
+        return reused
+
     def build(self, version, config, out, cancel):
         """Build one Shelley version; commits are cached by SHA, the worktree never is."""
+        if version.get("agent") == "pi":
+            return agents.prepare_pi(version, out)
         if version["sha"] != "WORKTREE":
             cache = self.data / "builds" / version["sha"]
             manifest = cache / "build.json"

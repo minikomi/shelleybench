@@ -49,7 +49,7 @@ def kind_of(event):
         return "browser"
     if command.startswith(("rg ", "grep ")) or "search" in tool:
         return "search"
-    if any(w in tool for w in ("apply_patch", "patch", "edit", "write_file")):
+    if any(w in tool for w in ("apply_patch", "patch", "edit", "write_file")) or tool == "write":
         return "edit"
     if any(w in command for w in ("go test", "pytest", "unittest", "vitest", "playwright test", " npm test", "pnpm test", "bun test")):
         return "test"
@@ -136,6 +136,9 @@ def input_html(data):
 def formatted(event, tools=None):
     if event.get("kind") == "model":
         elapsed = request_duration(event)
+        if event.get("timing_source"):
+            timing = f'{elapsed:.2f}s' if elapsed is not None else 'Unknown'
+            return f'<div class="fe"><p><strong>{e(event.get("label"))}</strong> response lifecycle · {timing}.</p><p>Timing source: {e(event["timing_source"])}. These are Pi lifecycle observations, not provider HTTP request timestamps.</p></div>'
         if elapsed is not None:
             return f'<div class="fe"><p><strong>{e(event.get("label"))}</strong> request: {e(clock(event["start"]))} → {e(clock(event["end"]))} · <strong>{elapsed:.2f}s</strong>.</p><p>Recorded request time includes retries and backoff; it does not isolate model thinking or provider latency.</p></div>'
         return f'<div class="fe"><p>Model response recorded at <strong>{e(clock(event.get("start")))}</strong> ({e(event.get("label"))}). Request start was not recorded, so its duration is unknown.</p></div>'
@@ -327,7 +330,8 @@ def render(runs, labels, base, query, *, heading="Timeline", span=None, group_la
             if request:
                 elapsed = request_duration(request)
                 duration_text = f'{elapsed:.2f}s' if elapsed is not None else 'Unknown'
-                detail += f'<details class="model-metadata"><summary>Request timing · {e(request.get("label"))} · {duration_text}</summary>{formatted(request)}</details>'
+                timing_label = "Response lifecycle" if request.get("timing_source") else "Request timing"
+                detail += f'<details class="model-metadata"><summary>{timing_label} · {e(request.get("label"))} · {duration_text}</summary>{formatted(request)}</details>'
             duration_text = f'{group["end"] - group["start"]:.2f}s' if group["tools"] or request_duration(request) is not None else 'Unknown'
             failure = '<span class="activity-failure">patch rejected</span>' if group["patch_rejected"] else '<span class="activity-failure">failed</span>' if group["failed"] else ''
             toggle = f"if(!evt.target.open){{evt.currentTarget.closest('.tl').querySelectorAll('.blk.sel[data-row=\"{row_id}\"]').forEach(bar=>{{bar.classList.remove('sel');bar.setAttribute('aria-expanded','false');}});}}"
