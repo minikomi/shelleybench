@@ -132,3 +132,11 @@ A version can instead specify `reuse_run_id` to reuse a completed graded outcome
 Reuse requires identical frozen task/grader, model, reasoning, and actor note;
 original runs are unchanged, and reused versions do not launch an agent. This is
 limited to one comparison attempt.
+
+## Curated homepage
+
+Set `featured_order` on selected benchmarks through their metadata endpoint
+(`POST /api/benchmarks/<id>`). An integer from 0 to 1000 selects and orders a
+study; `null` removes it from the curated list. When any studies are selected,
+the homepage shows only those, with an Archive link to `/?view=all`.
+Sites without selected studies continue to show all benchmarks.

@@ -218,7 +218,14 @@ def post_button(action, fields, label, danger=False):
 
 def benchmarks_page(app, params):
     items = [app.benchmark_view(b) for b in app.store.list("benchmarks")]
+    featured = sorted([b for b in items if type(b.get("featured_order")) is int],
+                      key=lambda b: b["featured_order"])
+    archive = q(params, "view") == "all"
+    curated = bool(featured) and not archive
+    visible = featured if curated else list(reversed(items))
     tasks = {t["id"]: t for t in app.store.list("tasks")}
+    task_ids = {key for b in visible for key in b.get("task_ids", [])}
+    task_options = {key: task for key, task in tasks.items() if key in task_ids}
     filters = {k: q(params, k) for k in ("group", "task", "model", "version", "status", "q")}
     def keep(b):
         if filters["group"] and b.get("group") != filters["group"]:
@@ -234,21 +241,22 @@ def benchmarks_page(app, params):
         if filters["q"] and filters["q"].lower() not in json.dumps({k: b.get(k) for k in ("title", "group", "notes", "tags")}).lower():
             return False
         return True
-    shown = [b for b in reversed(items) if keep(b)]
-    groups = sorted({b.get("group") for b in items if b.get("group")})
-    models = sorted({m for b in items for m in b.get("models", [])})
-    labels = sorted({v["label"] for b in items for v in b.get("versions", [])})
+    shown = [b for b in visible if keep(b)]
+    groups = sorted({b.get("group") for b in visible if b.get("group")})
+    models = sorted({m for b in visible for m in b.get("models", [])})
+    labels = sorted({v["label"] for b in visible for v in b.get("versions", [])})
     def options(values, current, blank):
         return f'<option value="">{e(blank)}</option>' + "".join(f'<option value="{e(v)}" {"selected" if v == current else ""}>{e(v)}</option>' for v in values)
     apply_filters = "const form = evt.target.closest('form'); const url = '/?' + new URLSearchParams(new FormData(form)); history.replaceState(null, '', url); @get(url + '&fragment=1')"
     form = f'''<form method="get" action="/" class="filters" data-on:change="{e("if (evt.target.tagName === 'SELECT') { " + apply_filters + " }")}" data-on:submit="{e("evt.preventDefault(); " + apply_filters)}">
+{('<input type="hidden" name="view" value="all">' if archive else '')}
 <input name="q" aria-label="Search benchmarks" value="{e(filters["q"])}" placeholder="Search title, notes, tags" data-on:input__debounce.250ms="{e(apply_filters)}">
 <select name="group" aria-label="Topic">{options(groups, filters["group"], "Any topic")}</select>
-<select name="task" aria-label="Task"><option value="">Any task</option>{"".join(f'<option value="{e(k)}" {"selected" if k == filters["task"] else ""}>{e(t["title"])}</option>' for k, t in tasks.items())}</select>
+<select name="task" aria-label="Task"><option value="">Any task</option>{"".join(f'<option value="{e(k)}" {"selected" if k == filters["task"] else ""}>{e(t["title"])}</option>' for k, t in task_options.items())}</select>
 <select name="model" aria-label="Model">{options(models, filters["model"], "Any model")}</select>
 <select name="version" aria-label="Version">{options(labels, filters["version"], "Any version")}</select>
 <select name="status" aria-label="Status">{options(["queued", "building", "running", "complete", "failed", "cancelled", "interrupted"], filters["status"], "Any status")}</select>
-<a href="/">Clear</a></form>'''
+<a href="{'/?view=all' if archive else '/'}">Clear</a></form>'''
     topics = {}
     for b in shown:
         topic = (b.get("group") or "Ungrouped").split(" · ", 1)[0]
@@ -268,8 +276,12 @@ def benchmarks_page(app, params):
         sections += f'<section class="benchmark-topic"><h2>{e(title)} <small>{len(rows)}</small></h2><div class="table-scroll"><table class="benchmark-index"><thead><tr><th>Benchmark / task</th><th>Versions / models</th><th>Passed / complete</th><th>Status / created</th></tr></thead><tbody>{"".join(rows)}</tbody></table></div></section>'
     if not sections:
         sections = '<p class="muted">No benchmarks match these filters.</p>' if items else '<p class="muted">No benchmarks recorded. Create one through the API (see Settings for the skill).</p>'
-    live = any(b["status"] in ACTIVE for b in items)
-    return "Benchmarks", f'<h1>Benchmarks <small>{len(shown)} of {len(items)}</small></h1>{form}{sections}', live
+    live = any(b["status"] in ACTIVE for b in visible)
+    title = "Studies" if curated else "Archive" if archive else "Benchmarks"
+    navigation = '<p><a href="/?view=all">Archive</a></p>' if curated else '<p><a href="/">Curated studies</a></p>' if archive and featured else ""
+    if curated:
+        form = f'<details><summary>Filter studies</summary>{form}</details>'
+    return title, f'<h1>{title} <small>{len(shown)}</small></h1>{navigation}{form}{sections}', live
 
 
 # ----- benchmark detail --------------------------------------------------------

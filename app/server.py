@@ -606,9 +606,12 @@ class App:
         self.store.delete("benchmarks", key)
 
     def update_benchmark(self, key, body):
-        allowed = {"title", "group", "notes", "tags", "report"}
+        allowed = {"title", "group", "notes", "tags", "report", "featured_order"}
         if set(body) - allowed:
             raise ValueError("Unknown benchmark field")
+        order = body.get("featured_order")
+        if order is not None and (type(order) is not int or not 0 <= order <= 1000):
+            raise ValueError("featured_order must be null or an integer from 0 to 1000")
         if "report" in body:
             bench = self.store.require("benchmarks", key)
             body = {**body, "report": {**(bench.get("report") or {}), **report_text(body["report"])}}
